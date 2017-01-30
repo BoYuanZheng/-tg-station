@@ -5,7 +5,7 @@
 
 /obj/structure/mecha_wreckage
 	name = "exosuit wreckage"
-	desc = "Remains of some unfortunate mecha. Completely unrepairable."
+	desc = "Remains of some unfortunate mecha. Completely unrepairable, but perhaps something can be salvaged."
 	icon = 'icons/mecha/mecha.dmi'
 	density = 1
 	anchored = 0
@@ -14,53 +14,88 @@
 	var/list/wirecutters_salvage = list(/obj/item/stack/cable_coil)
 	var/list/crowbar_salvage = list()
 	var/salvage_num = 5
+	var/mob/living/silicon/ai/AI //AIs to be salvaged
 
-/obj/structure/mecha_wreckage/attackby(obj/item/I, mob/user)
+/obj/structure/mecha_wreckage/New(loc, mob/living/silicon/ai/AI_pilot)
+	..()
+	if(AI_pilot) //Type-checking for this is already done in mecha/Destroy()
+		AI = AI_pilot
+		AI.apply_damage(150, BURN) //Give the AI a bit of damage from the "shock" of being suddenly shut down
+		AI.death() //The damage is not enough to kill the AI, but to be 'corrupted files' in need of repair.
+		AI.forceMove(src) //Put the dead AI inside the wreckage for recovery
+		add_overlay(image('icons/obj/projectiles.dmi', icon_state = "green_laser")) //Overlay for the recovery beacon
+		AI.controlled_mech = null
+		AI.remote_control = null
+
+/obj/structure/mecha_wreckage/examine(mob/user)
+	..()
+	if(AI)
+		user << "<span class='notice'>The AI recovery beacon is active.</span>"
+
+/obj/structure/mecha_wreckage/attackby(obj/item/I, mob/user, params)
 	if(istype(I, /obj/item/weapon/weldingtool))
 		if(salvage_num <= 0)
-			user << "<span class='notice'>You don't see anything that can be cut with [I].</span>"
+			user << "<span class='warning'>You don't see anything that can be cut with [I]!</span>"
 			return
 		var/obj/item/weapon/weldingtool/WT = I
 		if(welder_salvage && welder_salvage.len && WT.remove_fuel(0, user))
 			var/type = prob(70) ? pick(welder_salvage) : null
 			if(type)
 				var/N = new type(get_turf(user))
-				user.visible_message("<span class='notice'>[user] cuts [N] from [src].</span>", "<span class='notice'>You cut [N] from [src].</span>")
+				user.visible_message("[user] cuts [N] from [src].", "<span class='notice'>You cut [N] from [src].</span>")
 				if(istype(N, /obj/item/mecha_parts/part))
 					welder_salvage -= type
 				salvage_num--
 			else
-				user << "<span class='notice'>You failed to salvage anything valuable from [src].</span>"
+				user << "<span class='warning'>You fail to salvage anything valuable from [src]!</span>"
 		else
-			user << "<span class='notice'>You need more welding fuel to complete this task.</span>"
 			return
 
-	if(istype(I, /obj/item/weapon/wirecutters))
+	else if(istype(I, /obj/item/weapon/wirecutters))
 		if(salvage_num <= 0)
-			user << "<span class='notice'>You don't see anything that can be cut with [I].</span>"
+			user << "<span class='warning'>You don't see anything that can be cut with [I]!</span>"
 			return
 		else if(wirecutters_salvage && wirecutters_salvage.len)
 			var/type = prob(70) ? pick(wirecutters_salvage) : null
 			if(type)
 				var/N = new type(get_turf(user))
-				user.visible_message("<span class='notice'>[user] cuts [N] from [src].</span>", "<span class='notice'>You cut [N] from [src].</span>")
+				user.visible_message("[user] cuts [N] from [src].", "<span class='notice'>You cut [N] from [src].</span>")
 				salvage_num--
 			else
-				user << "<span class='notice'>You failed to salvage anything valuable from [src].</span>"
+				user << "<span class='warning'>You fail to salvage anything valuable from [src]!</span>"
 
-	if(istype(I, /obj/item/weapon/crowbar))
+	else if(istype(I, /obj/item/weapon/crowbar))
 		if(crowbar_salvage && crowbar_salvage.len)
 			var/obj/S = pick(crowbar_salvage)
 			if(S)
 				S.loc = get_turf(user)
 				crowbar_salvage -= S
-				user.visible_message("<span class='notice'>[user] pries [S] from [src].</span>", "<span class='notice'>You pry [S] from [src].</span>")
+				user.visible_message("[user] pries [S] from [src].", "<span class='notice'>You pry [S] from [src].</span>")
 			return
 		else
-			user << "<span class='notice'>You don't see anything that can be pried with [I].</span>"
+			user << "<span class='warning'>You don't see anything that can be pried with [I]!</span>"
+
+
+/obj/structure/mecha_wreckage/transfer_ai(interaction, mob/user, null, obj/item/device/aicard/card)
+	if(!..())
+		return
+
+ //Proc called on the wreck by the AI card.
+	if(interaction == AI_TRANS_TO_CARD) //AIs can only be transferred in one direction, from the wreck to the card.
+		if(!AI) //No AI in the wreck
+			user << "<span class='warning'>No AI backups found.</span>"
+			return
+		cut_overlays() //Remove the recovery beacon overlay
+		AI.forceMove(card) //Move the dead AI to the card.
+		card.AI = AI
+		if(AI.client) //AI player is still in the dead AI and is connected
+			AI << "The remains of your file system have been recovered on a mobile storage device."
+		else //Give the AI a heads-up that it is probably going to get fixed.
+			AI.notify_ghost_cloning("You have been recovered from the wreckage!", source = card)
+		user << "<span class='boldnotice'>Backup files recovered</span>: [AI.name] ([rand(1000,9999)].exe) salvaged from [name] and stored within local memory."
 
 	else
-		..()
+		return ..()
 
 
 /obj/structure/mecha_wreckage/gygax
@@ -104,6 +139,7 @@
 	name = "\improper Reticence wreckage"
 	icon_state = "reticence-broken"
 	color = "#87878715"
+	desc = "..."
 
 /obj/structure/mecha_wreckage/ripley
 	name = "\improper Ripley wreckage"
@@ -150,6 +186,7 @@
 /obj/structure/mecha_wreckage/honker
 	name = "\improper H.O.N.K wreckage"
 	icon_state = "honker-broken"
+	desc = "All is right in the universe."
 
 /obj/structure/mecha_wreckage/honker/New()
 	..()

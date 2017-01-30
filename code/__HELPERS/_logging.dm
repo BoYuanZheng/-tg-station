@@ -1,23 +1,32 @@
-//print an error message to world.log
-#define ERROR(MSG) error("[MSG] in [__FILE__] at line [__LINE__] src: [src] usr: [usr].")
-/proc/error(msg)
-	world.log << "## ERROR: [msg]"
-
 //print a warning message to world.log
 #define WARNING(MSG) warning("[MSG] in [__FILE__] at line [__LINE__] src: [src] usr: [usr].")
 /proc/warning(msg)
 	world.log << "## WARNING: [msg]"
 
-//print a testing-mode debug message to world.log
-/proc/testing(msg)
+//not an error or a warning, but worth to mention on the world log, just in case.
+#define NOTICE(MSG) notice(MSG)
+/proc/notice(msg)
+	world.log << "## NOTICE: [msg]"
+
+//print a testing-mode debug message to world.log and world
 #ifdef TESTING
-	world.log << "## TESTING: [msg]"
+#define testing(msg) world.log << "## TESTING: [msg]"; world << "## TESTING: [msg]"
+#else
+#define testing(msg)
 #endif
 
 /proc/log_admin(text)
 	admin_log.Add(text)
 	if (config.log_admin)
 		diary << "\[[time_stamp()]]ADMIN: [text]"
+
+/proc/log_adminsay(text)
+	if (config.log_adminchat)
+		log_admin("ASAY: [text]")
+
+/proc/log_dsay(text)
+	if (config.log_adminchat)
+		log_admin("DSAY: [text]")
 
 /proc/log_game(text)
 	if (config.log_game)
@@ -59,14 +68,15 @@
 	if (config.log_attack)
 		diaryofmeanpeople << "\[[time_stamp()]]ATTACK: [text]"
 
-/proc/log_adminsay(text)
-	if (config.log_adminchat)
-		diary << "\[[time_stamp()]]ADMINSAY: [text]"
-
-/proc/log_adminwarn(text)
-	if (config.log_adminwarn)
-		diary << "\[[time_stamp()]]ADMINWARN: [text]"
-
 /proc/log_pda(text)
 	if (config.log_pda)
 		diary << "\[[time_stamp()]]PDA: [text]"
+
+/proc/log_comment(text)
+	if (config.log_pda)
+		//reusing the PDA option because I really don't think news comments are worth a config option
+		diary << "\[[time_stamp()]]COMMENT: [text]"
+
+/proc/log_chat(text)
+	if (config.log_pda)
+		diary << "\[[time_stamp()]]CHAT: [text]"

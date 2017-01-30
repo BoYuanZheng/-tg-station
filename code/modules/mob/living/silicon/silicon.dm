@@ -1,19 +1,65 @@
 /mob/living/silicon
 	gender = NEUTER
-	robot_talk_understand = 1
 	voice_name = "synthesized voice"
+	languages_spoken = ROBOT | HUMAN
+	languages_understood = ROBOT | HUMAN
+	has_unlimited_silicon_privilege = 1
+	verb_say = "states"
+	verb_ask = "queries"
+	verb_exclaim = "declares"
+	verb_yell = "alarms"
+	see_in_dark = 8
+	bubble_icon = "machine"
+	weather_immunities = list("ash")
+	possible_a_intents = list(INTENT_HELP, INTENT_HARM)
+
 	var/syndicate = 0
 	var/datum/ai_laws/laws = null//Now... THEY ALL CAN ALL HAVE LAWS
 	var/list/alarms_to_show = list()
 	var/list/alarms_to_clear = list()
 	var/designation = ""
+	var/radiomod = "" //Radio character used before state laws/arrivals announce to allow department transmissions, default, or none at all.
+	var/obj/item/device/camera/siliconcam/aicamera = null //photography
+	//hud_possible = list(DIAG_STAT_HUD, DIAG_HUD, ANTAG_HUD)
+	hud_possible = list(ANTAG_HUD, DIAG_STAT_HUD, DIAG_HUD)
 
+	var/obj/item/device/radio/borg/radio = null //AIs dont use this but this is at the silicon level to advoid copypasta in say()
 
 	var/list/alarm_types_show = list("Motion" = 0, "Fire" = 0, "Atmosphere" = 0, "Power" = 0, "Camera" = 0)
 	var/list/alarm_types_clear = list("Motion" = 0, "Fire" = 0, "Atmosphere" = 0, "Power" = 0, "Camera" = 0)
 
 	var/lawcheck[1]
 	var/ioncheck[1]
+	var/devillawcheck[5]
+
+	var/med_hud = DATA_HUD_MEDICAL_ADVANCED //Determines the med hud to use
+	var/sec_hud = DATA_HUD_SECURITY_ADVANCED //Determines the sec hud to use
+	var/d_hud = DATA_HUD_DIAGNOSTIC //There is only one kind of diag hud
+
+	var/law_change_counter = 0
+
+/mob/living/silicon/New()
+	..()
+	silicon_mobs += src
+	var/datum/atom_hud/data/diagnostic/diag_hud = huds[DATA_HUD_DIAGNOSTIC]
+	diag_hud.add_to_hud(src)
+	diag_hud_set_status()
+	diag_hud_set_health()
+
+/mob/living/silicon/med_hud_set_health()
+	return //we use a different hud
+
+/mob/living/silicon/med_hud_set_status()
+	return //we use a different hud
+
+/mob/living/silicon/Destroy()
+	radio = null
+	aicamera = null
+	silicon_mobs -= src
+	return ..()
+
+/mob/living/silicon/contents_explosion(severity, target)
+	return
 
 /mob/living/silicon/proc/cancelAlarm()
 	return
@@ -21,7 +67,7 @@
 /mob/living/silicon/proc/triggerAlarm()
 	return
 
-/mob/living/silicon/proc/queueAlarm(var/message, var/type, var/incoming = 1)
+/mob/living/silicon/proc/queueAlarm(message, type, incoming = 1)
 	var/in_cooldown = (alarms_to_show.len > 0 || alarms_to_clear.len > 0)
 	if(incoming)
 		alarms_to_show += message
@@ -31,7 +77,7 @@
 		alarm_types_clear[type] += 1
 
 	if(!in_cooldown)
-		spawn(3 * 10) // 10 seconds
+		spawn(3 * 10) // 3 seconds
 
 			if(alarms_to_show.len < 5)
 				for(var/msg in alarms_to_show)
@@ -39,6 +85,9 @@
 			else if(alarms_to_show.len)
 
 				var/msg = "--- "
+
+				if(alarm_types_show["Burglar"])
+					msg += "BURGLAR: [alarm_types_show["Burglar"]] alarms detected. - "
 
 				if(alarm_types_show["Motion"])
 					msg += "MOTION: [alarm_types_show["Motion"]] alarms detected. - "
@@ -94,36 +143,7 @@
 /mob/living/silicon/drop_item()
 	return
 
-/mob/living/silicon/emp_act(severity)
-	switch(severity)
-		if(1)
-			src.take_organ_damage(20)
-			Stun(8)
-		if(2)
-			src.take_organ_damage(10)
-			Stun(3)
-	flick("noise", src:flash)
-	src << "\red <B>*BZZZT*</B>"
-	src << "\red Warning: Electromagnetic pulse detected."
-	..()
-
-/mob/living/silicon/apply_damage(var/damage = 0,var/damagetype = BRUTE, var/def_zone = null, var/blocked = 0)
-	blocked = (100-blocked)/100
-	if(!damage || (blocked <= 0))	return 0
-	switch(damagetype)
-		if(BRUTE)
-			adjustBruteLoss(damage * blocked)
-		if(BURN)
-			adjustFireLoss(damage * blocked)
-		else
-			return 1
-	updatehealth()
-	return 1
-
-/mob/living/silicon/proc/damage_mob(var/brute = 0, var/fire = 0, var/tox = 0)
-	return
-
-/mob/living/silicon/can_inject(var/mob/user, var/error_msg)
+/mob/living/silicon/can_inject(mob/user, error_msg)
 	if(error_msg)
 		user << "<span class='alert'>Their outer shell is too tough.</span>"
 	return 0
@@ -131,35 +151,7 @@
 /mob/living/silicon/IsAdvancedToolUser()
 	return 1
 
-/mob/living/silicon/bullet_act(var/obj/item/projectile/Proj)
-	if((Proj.damage_type == BRUTE || Proj.damage_type == BURN))
-		adjustBruteLoss(Proj.damage)
-	Proj.on_hit(src,2)
-	return 2
-
-/mob/living/silicon/apply_effect(var/effect = 0,var/effecttype = STUN, var/blocked = 0)
-	return 0//The only effect that can hit them atm is flashes and they still directly edit so this works for now
-/*
-	if(!effect || (blocked >= 2))	return 0
-	switch(effecttype)
-		if(STUN)
-			stunned = max(stunned,(effect/(blocked+1)))
-		if(WEAKEN)
-			weakened = max(weakened,(effect/(blocked+1)))
-		if(PARALYZE)
-			paralysis = max(paralysis,(effect/(blocked+1)))
-		if(IRRADIATE)
-			radiation += min((effect - (effect*getarmor(null, "rad"))), 0)//Rads auto check armor
-		if(STUTTER)
-			stuttering = max(stuttering,(effect/(blocked+1)))
-		if(EYE_BLUR)
-			eye_blurry = max(eye_blurry,(effect/(blocked+1)))
-		if(DROWSY)
-			drowsyness = max(drowsyness,(effect/(blocked+1)))
-	updatehealth()
-	return 1*/
-
-/proc/islinked(var/mob/living/silicon/robot/bot, var/mob/living/silicon/ai/ai)
+/proc/islinked(mob/living/silicon/robot/bot, mob/living/silicon/ai/ai)
 	if(!istype(bot) || !istype(ai))
 		return 0
 	if (bot.connected_ai == ai)
@@ -170,18 +162,30 @@
 	if (href_list["lawc"]) // Toggling whether or not a law gets stated by the State Laws verb --NeoFite
 		var/L = text2num(href_list["lawc"])
 		switch(lawcheck[L+1])
-			if ("Yes") lawcheck[L+1] = "No"
-			if ("No") lawcheck[L+1] = "Yes"
-//		src << text ("Switching Law [L]'s report status to []", lawcheck[L+1])
+			if ("Yes")
+				lawcheck[L+1] = "No"
+			if ("No")
+				lawcheck[L+1] = "Yes"
 		checklaws()
 
 	if (href_list["lawi"]) // Toggling whether or not a law gets stated by the State Laws verb --NeoFite
 		var/L = text2num(href_list["lawi"])
 		switch(ioncheck[L])
-			if ("Yes") ioncheck[L] = "No"
-			if ("No") ioncheck[L] = "Yes"
-//		src << text ("Switching Law [L]'s report status to []", lawcheck[L+1])
+			if ("Yes")
+				ioncheck[L] = "No"
+			if ("No")
+				ioncheck[L] = "Yes"
 		checklaws()
+
+	if (href_list["lawdevil"]) // Toggling whether or not a law gets stated by the State Laws verb --NeoFite
+		var/L = text2num(href_list["lawdevil"])
+		switch(devillawcheck[L])
+			if ("Yes")
+				devillawcheck[L] = "No"
+			if ("No")
+				devillawcheck[L] = "Yes"
+		checklaws()
+
 
 	if (href_list["laws"]) // With how my law selection code works, I changed statelaws from a verb to a proc, and call it through my law selection panel. --NeoFite
 		statelaws()
@@ -189,35 +193,41 @@
 	return
 
 
-/mob/living/silicon/proc/statelaws()
+/mob/living/silicon/proc/statelaws(force = 0)
 
-	src.say("Current Active Laws:")
+	//"radiomod" is inserted before a hardcoded message to change if and how it is handled by an internal radio.
+	src.say("[radiomod] Current Active Laws:")
 	//src.laws_sanity_check()
 	//src.laws.show_laws(world)
 	var/number = 1
 	sleep(10)
 
+	if (src.laws.devillaws && src.laws.devillaws.len)
+		for(var/index = 1, index <= src.laws.devillaws.len, index++)
+			if (force || src.devillawcheck[index] == "Yes")
+				src.say("[radiomod] 666. [src.laws.devillaws[index]]")
+				sleep(10)
 
 
 	if (src.laws.zeroth)
-		if (src.lawcheck[1] == "Yes")
-			src.say("0. [src.laws.zeroth]")
+		if (force || src.lawcheck[1] == "Yes")
+			src.say("[radiomod] 0. [src.laws.zeroth]")
 			sleep(10)
 
 	for (var/index = 1, index <= src.laws.ion.len, index++)
 		var/law = src.laws.ion[index]
 		var/num = ionnum()
 		if (length(law) > 0)
-			if (src.ioncheck[index] == "Yes")
-				src.say("[num]. [law]")
+			if (force || src.ioncheck[index] == "Yes")
+				src.say("[radiomod] [num]. [law]")
 				sleep(10)
 
 	for (var/index = 1, index <= src.laws.inherent.len, index++)
 		var/law = src.laws.inherent[index]
 
 		if (length(law) > 0)
-			if (src.lawcheck[index+1] == "Yes")
-				src.say("[number]. [law]")
+			if (force || src.lawcheck[index+1] == "Yes")
+				src.say("[radiomod] [number]. [law]")
 				sleep(10)
 			number++
 
@@ -227,8 +237,8 @@
 
 		if (length(law) > 0)
 			if(src.lawcheck.len >= number+1)
-				if (src.lawcheck[number+1] == "Yes")
-					src.say("[number]. [law]")
+				if (force || src.lawcheck[number+1] == "Yes")
+					src.say("[radiomod] [number]. [law]")
 					sleep(10)
 				number++
 
@@ -236,6 +246,12 @@
 /mob/living/silicon/proc/checklaws() //Gives you a link-driven interface for deciding what laws the statelaws() proc will share with the crew. --NeoFite
 
 	var/list = "<b>Which laws do you want to include when stating them for the crew?</b><br><br>"
+
+	if (src.laws.devillaws && src.laws.devillaws.len)
+		for(var/index = 1, index <= src.laws.devillaws.len, index++)
+			if (!src.devillawcheck[index])
+				src.devillawcheck[index] = "No"
+			list += {"<A href='byond://?src=\ref[src];lawdevil=[index]'>[src.devillawcheck[index]] 666:</A> [src.laws.devillaws[index]]<BR>"}
 
 	if (src.laws.zeroth)
 		if (!src.lawcheck[1])
@@ -275,30 +291,28 @@
 
 	usr << browse(list, "window=laws")
 
-/mob/living/silicon/Bump(atom/movable/AM as mob|obj, yes)  //Allows the AI to bump into mobs if it's itself pushed
-	if ((!( yes ) || now_pushing))
+/mob/living/silicon/proc/set_autosay() //For allowing the AI and borgs to set the radio behavior of auto announcements (state laws, arrivals).
+	if(!radio)
+		src << "Radio not detected."
 		return
-	now_pushing = 1
-	if(ismob(AM))
-		var/mob/tmob = AM
-		if(!(tmob.status_flags & CANPUSH))
-			now_pushing = 0
-			return
-	now_pushing = 0
-	..()
-	if (!istype(AM, /atom/movable))
+
+	//Ask the user to pick a channel from what it has available.
+	var/Autochan = input("Select a channel:") as null|anything in list("Default","None") + radio.channels
+
+	if(!Autochan)
 		return
-	if (!now_pushing)
-		now_pushing = 1
-		if (!AM.anchored)
-			var/t = get_dir(src, AM)
-			if (istype(AM, /obj/structure/window))
-				if(AM:ini_dir == NORTHWEST || AM:ini_dir == NORTHEAST || AM:ini_dir == SOUTHWEST || AM:ini_dir == SOUTHEAST)
-					for(var/obj/structure/window/win in get_step(AM,t))
-						now_pushing = 0
-						return
-			step(AM, t)
-		now_pushing = null
+	if(Autochan == "Default") //Autospeak on whatever frequency to which the radio is set, usually Common.
+		radiomod = ";"
+		Autochan += " ([radio.frequency])"
+	else if(Autochan == "None") //Prevents use of the radio for automatic annoucements.
+		radiomod = ""
+	else	//For department channels, if any, given by the internal radio.
+		for(var/key in department_radio_keys)
+			if(department_radio_keys[key] == Autochan)
+				radiomod = key
+				break
+
+	src << "<span class='notice'>Automatic announcements [Autochan == "None" ? "will not use the radio." : "set to [Autochan]."]</span>"
 
 /mob/living/silicon/put_in_hand_check() // This check is for borgs being able to receive items, not put them in others' hands.
 	return 0
@@ -311,3 +325,61 @@
 
 /mob/living/silicon/assess_threat() //Secbots won't hunt silicon units
 	return -10
+
+/mob/living/silicon/proc/remove_med_sec_hud()
+	var/datum/atom_hud/secsensor = huds[sec_hud]
+	var/datum/atom_hud/medsensor = huds[med_hud]
+	var/datum/atom_hud/diagsensor = huds[d_hud]
+	secsensor.remove_hud_from(src)
+	medsensor.remove_hud_from(src)
+	diagsensor.remove_hud_from(src)
+
+/mob/living/silicon/proc/add_sec_hud()
+	var/datum/atom_hud/secsensor = huds[sec_hud]
+	secsensor.add_hud_to(src)
+
+/mob/living/silicon/proc/add_med_hud()
+	var/datum/atom_hud/medsensor = huds[med_hud]
+	medsensor.add_hud_to(src)
+
+/mob/living/silicon/proc/add_diag_hud()
+	var/datum/atom_hud/diagsensor = huds[d_hud]
+	diagsensor.add_hud_to(src)
+
+/mob/living/silicon/proc/sensor_mode()
+	if(incapacitated())
+		return
+	var/sensor_type = input("Please select sensor type.", "Sensor Integration", null) in list("Security", "Medical","Diagnostic","Disable")
+	remove_med_sec_hud()
+	switch(sensor_type)
+		if ("Security")
+			add_sec_hud()
+			src << "<span class='notice'>Security records overlay enabled.</span>"
+		if ("Medical")
+			add_med_hud()
+			src << "<span class='notice'>Life signs monitor overlay enabled.</span>"
+		if ("Diagnostic")
+			add_diag_hud()
+			src << "<span class='notice'>Robotics diagnostic overlay enabled.</span>"
+		if ("Disable")
+			src << "Sensor augmentations disabled."
+
+
+/mob/living/silicon/proc/GetPhoto()
+	if (aicamera)
+		return aicamera.selectpicture(aicamera)
+
+/mob/living/silicon/update_transform()
+	var/matrix/ntransform = matrix(transform) //aka transform.Copy()
+	var/changed = 0
+	if(resize != RESIZE_DEFAULT_SIZE)
+		changed++
+		ntransform.Scale(resize)
+		resize = RESIZE_DEFAULT_SIZE
+
+	if(changed)
+		animate(src, transform = ntransform, time = 2,easing = EASE_IN|EASE_OUT)
+	return ..()
+
+/mob/living/silicon/is_literate()
+	return 1

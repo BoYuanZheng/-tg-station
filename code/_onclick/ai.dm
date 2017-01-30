@@ -10,9 +10,9 @@
 	Note that AI have no need for the adjacency proc, and so this proc is a lot cleaner.
 */
 /mob/living/silicon/ai/DblClickOn(var/atom/A, params)
-	if(client.buildmode) // comes after object.Click to allow buildmode gui objects to be clicked
-		build_click(src, client.buildmode, params, A)
-		return
+	if(client.click_intercept)
+		if(call(client.click_intercept, "InterceptClickOn")(src, params, A))
+			return
 
 	if(control_disabled || stat) return
 
@@ -27,11 +27,19 @@
 		return
 	next_click = world.time + 1
 
-	if(client.buildmode) // comes after object.Click to allow buildmode gui objects to be clicked
-		build_click(src, client.buildmode, params, A)
-		return
+	if(client.click_intercept)
+		if(call(client.click_intercept, "InterceptClickOn")(src, params, A))
+			return
 
 	if(control_disabled || stat)
+		return
+
+	var/turf/pixel_turf = get_turf_pixel(A)
+	var/turf_visible = cameranet.checkTurfVis(pixel_turf)
+	if(pixel_turf && !turf_visible)
+		log_admin("[key_name_admin(src)] might be running a modified client! (failed checkTurfVis on AI click of [A]([COORD(pixel_turf)])")
+		message_admins("[key_name_admin(src)] might be running a modified client! (failed checkTurfVis on AI click of [A]([ADMIN_COORDJMP(pixel_turf)]))")
+		send2irc_adminless_only("NOCHEAT", "[key_name(src)] might be running a modified client! (failed checkTurfVis on AI click of [A]([COORD(pixel_turf)]))")
 		return
 
 	var/list/modifiers = params2list(params)
@@ -39,7 +47,10 @@
 		CtrlShiftClickOn(A)
 		return
 	if(modifiers["middle"])
-		MiddleClickOn(A)
+		if(controlled_mech) //Are we piloting a mech? Placed here so the modifiers are not overridden.
+			controlled_mech.click_action(A, src, params) //Override AI normal click behavior.
+		return
+
 		return
 	if(modifiers["shift"])
 		ShiftClickOn(A)
@@ -54,9 +65,13 @@
 	if(world.time <= next_move)
 		return
 
-	if(aicamera.in_camera_mode)
+	if(aicamera.in_camera_mode && pixel_turf && turf_visible)
 		aicamera.camera_mode_off()
-		aicamera.captureimage(A, usr)
+		aicamera.captureimage(pixel_turf, usr)
+		return
+	if(waypoint_mode)
+		waypoint_mode = 0
+		set_waypoint(A)
 		return
 
 	/*
@@ -78,7 +93,7 @@
 /mob/living/silicon/ai/RangedAttack(atom/A)
 	A.attack_ai(src)
 
-/atom/proc/attack_ai(mob/user as mob)
+/atom/proc/attack_ai(mob/user)
 	return
 
 /*
@@ -100,34 +115,20 @@
 	The following criminally helpful code is just the previous code cleaned up;
 	I have no idea why it was in atoms.dm instead of respective files.
 */
+/* Questions: Instead of an Emag check on every function, can we not add to airlocks onclick if emag return? */
+
+/* Atom Procs */
+/atom/proc/AICtrlClick()
+	return
+/atom/proc/AIAltClick(mob/living/silicon/ai/user)
+	AltClick(user)
+	return
+/atom/proc/AIShiftClick()
+	return
 /atom/proc/AICtrlShiftClick()
 	return
 
-/obj/machinery/door/airlock/AICtrlShiftClick()  // Sets/Unsets Emergency Access Override
-	if(emagged)
-		return
-	if(!emergency)
-		Topic("aiEnable=11", list("aiEnable"="11"), 1) // 1 meaning no window (consistency!)
-	else
-		Topic("aiDisable=11", list("aiDisable"="11"), 1)
-	return
-
-/atom/proc/AIShiftClick()
-	return
-
-/obj/machinery/door/airlock/AIShiftClick()  // Opens and closes doors!
-	if(emagged)
-		return
-	if(density)
-		Topic("aiEnable=7", list("aiEnable"="7"), 1) // 1 meaning no window (consistency!)
-	else
-		Topic("aiDisable=7", list("aiDisable"="7"), 1)
-	return
-
-
-/atom/proc/AICtrlClick()
-	return
-
+/* Airlocks */
 /obj/machinery/door/airlock/AICtrlClick() // Bolts doors
 	if(emagged)
 		return
@@ -135,18 +136,6 @@
 		Topic("aiEnable=4", list("aiEnable"="4"), 1)// 1 meaning no window (consistency!)
 	else
 		Topic("aiDisable=4", list("aiDisable"="4"), 1)
-
-/obj/machinery/power/apc/AICtrlClick() // turns off/on APCs.
-	toggle_breaker()
-
-/obj/machinery/turretid/AICtrlClick() //turns off/on Turrets
-	src.enabled = !src.enabled
-	src.updateTurrets()
-
-
-/atom/proc/AIAltClick(var/mob/living/silicon/ai/user)
-	AltClick(user)
-	return
 
 /obj/machinery/door/airlock/AIAltClick() // Eletrifies doors.
 	if(emagged)
@@ -157,11 +146,36 @@
 	else
 		// disable/6 is not in Topic; disable/5 disables both temporary and permenant shock
 		Topic("aiDisable=5", list("aiDisable"="5"), 1)
-	return
 
+/obj/machinery/door/airlock/AIShiftClick()  // Opens and closes doors!
+	if(emagged)
+		return
+	if(density)
+		Topic("aiEnable=7", list("aiEnable"="7"), 1) // 1 meaning no window (consistency!)
+	else
+		Topic("aiDisable=7", list("aiDisable"="7"), 1)
+
+/obj/machinery/door/airlock/AICtrlShiftClick()  // Sets/Unsets Emergency Access Override
+	if(emagged)
+		return
+	if(!emergency)
+		Topic("aiEnable=11", list("aiEnable"="11"), 1) // 1 meaning no window (consistency!)
+	else
+		Topic("aiDisable=11", list("aiDisable"="11"), 1)
+
+/* APC */
+/obj/machinery/power/apc/AICtrlClick() // turns off/on APCs.
+	if(can_use(usr, 1))
+		toggle_breaker()
+		add_fingerprint(usr)
+
+/* AI Turrets */
 /obj/machinery/turretid/AIAltClick() //toggles lethal on turrets
-	src.lethal = !src.lethal
-	src.updateTurrets()
+	toggle_lethal()
+	add_fingerprint(usr)
+/obj/machinery/turretid/AICtrlClick() //turns off/on Turrets
+	toggle_on()
+	add_fingerprint(usr)
 
 //
 // Override TurfAdjacent for AltClicking

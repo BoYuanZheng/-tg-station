@@ -1,7 +1,7 @@
 /obj/item/weapon/grenade
 	name = "grenade"
 	desc = "It has an adjustable timer."
-	w_class = 2.0
+	w_class = WEIGHT_CLASS_SMALL
 	icon = 'icons/obj/grenade.dmi'
 	icon_state = "grenade"
 	item_state = "flashbang"
@@ -9,12 +9,21 @@
 	throw_range = 7
 	flags = CONDUCT
 	slot_flags = SLOT_BELT
+	resistance_flags = FLAMMABLE
+	obj_integrity = 40
+	max_integrity = 40
 	var/active = 0
 	var/det_time = 50
 	var/display_timer = 1
 
-/obj/item/weapon/grenade/proc/clown_check(var/mob/living/user)
-	if((CLUMSY in user.mutations) && prob(50))
+/obj/item/weapon/grenade/deconstruct(disassembled = TRUE)
+	if(!disassembled)
+		prime()
+	if(!qdeleted(src))
+		qdel(src)
+
+/obj/item/weapon/grenade/proc/clown_check(mob/living/carbon/human/user)
+	if(user.disabilities & CLUMSY && prob(50))
 		user << "<span class='warning'>Huh? How does this thing work?</span>"
 		active = 1
 		icon_state = initial(icon_state) + "_active"
@@ -27,45 +36,29 @@
 	return 1
 
 
-/*/obj/item/weapon/grenade/afterattack(atom/target as mob|obj|turf|area, mob/user as mob)
-	if (istype(target, /obj/item/weapon/storage)) return ..() // Trying to put it in a full container
-	if (istype(target, /obj/item/weapon/gun/grenadelauncher)) return ..()
-	if((user.get_active_hand() == src) && (!active) && (clown_check(user)) && target.loc != src.loc)
-		user << "<span class='warning'>You prime the [name]! [det_time/10] seconds!</span>"
-		active = 1
-		icon_state = initial(icon_state) + "_active"
-		playsound(loc, 'sound/weapons/armbomb.ogg', 75, 1, -3)
-		spawn(det_time)
-			prime()
-			return
-		user.dir = get_dir(user, target)
-		user.drop_item()
-		var/t = (isturf(target) ? target : target.loc)
-		walk_towards(src, t, 3)
-	return*/
-
-
-/obj/item/weapon/grenade/examine()
-	set src in usr
+/obj/item/weapon/grenade/examine(mob/user)
 	..()
 	if(display_timer)
 		if(det_time > 1)
-			usr << "The timer is set to [det_time/10] seconds."
+			user << "The timer is set to [det_time/10] second\s."
 		else
-			usr << "\The [src] is set for instant detonation."
+			user << "\The [src] is set for instant detonation."
 
 
-/obj/item/weapon/grenade/attack_self(mob/user as mob)
+/obj/item/weapon/grenade/attack_self(mob/user)
 	if(!active)
 		if(clown_check(user))
 			user << "<span class='warning'>You prime the [name]! [det_time/10] seconds!</span>"
+			playsound(user.loc, 'sound/weapons/armbomb.ogg', 60, 1)
 			active = 1
 			icon_state = initial(icon_state) + "_active"
 			add_fingerprint(user)
 			var/turf/bombturf = get_turf(src)
 			var/area/A = get_area(bombturf)
-			message_admins("[key_name(usr)]<A HREF='?_src_=holder;adminmoreinfo=\ref[usr]'>?</A> has primed a [name] for detonation at <A HREF='?_src_=holder;adminplayerobservecoodjump=1;X=[bombturf.x];Y=[bombturf.y];Z=[bombturf.z]'>[A.name] (JMP)</a>.")
-			log_game("[key_name(usr)] has primed a [name] for detonation at [A.name] ([bombturf.x],[bombturf.y],[bombturf.z]).")
+			var/message = "[ADMIN_LOOKUPFLW(user)]) has primed a [name] for detonation at [ADMIN_COORDJMP(bombturf)]"
+			bombers += message
+			message_admins(message)
+			log_game("[key_name(usr)] has primed a [name] for detonation at [A.name] [COORD(bombturf)].")
 			if(iscarbon(user))
 				var/mob/living/carbon/C = user
 				C.throw_mode_on()
@@ -78,10 +71,10 @@
 /obj/item/weapon/grenade/proc/update_mob()
 	if(ismob(loc))
 		var/mob/M = loc
-		M.unEquip(src)
+		M.dropItemToGround(src)
 
 
-/obj/item/weapon/grenade/attackby(obj/item/weapon/W as obj, mob/user as mob)
+/obj/item/weapon/grenade/attackby(obj/item/weapon/W, mob/user, params)
 	if(istype(W, /obj/item/weapon/screwdriver))
 		switch(det_time)
 			if ("1")
@@ -97,11 +90,18 @@
 				det_time = 1
 				user << "<span class='notice'>You set the [name] for instant detonation.</span>"
 		add_fingerprint(user)
-	..()
+	else
+		return ..()
 
 /obj/item/weapon/grenade/attack_hand()
 	walk(src, null, null)
 	..()
 
-/obj/item/weapon/grenade/attack_paw(mob/user as mob)
+/obj/item/weapon/grenade/attack_paw(mob/user)
 	return attack_hand(user)
+
+/obj/item/weapon/grenade/hit_reaction(mob/living/carbon/human/owner, attack_text, final_block_chance, damage, attack_type)
+	if(damage && attack_type == PROJECTILE_ATTACK && prob(15))
+		owner.visible_message("<span class='danger'>[attack_text] hits [owner]'s [src], setting it off! What a shot!</span>")
+		prime()
+		return 1 //It hit the grenade, not them
